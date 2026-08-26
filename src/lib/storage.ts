@@ -3,9 +3,9 @@ import { AniListMedia } from './anilist';
 
 // Configure localforage
 localforage.config({
-  name: 'AnimeLens',
-  storeName: 'anime_lens_store',
-  description: 'Local storage for Anime Lens Ultimate',
+  name: 'AniTraceAI',
+  storeName: 'anitrace_ai_store',
+  description: 'Local storage for AniTrace AI Ultimate',
 });
 
 export interface TraceCandidate {
@@ -129,7 +129,7 @@ export const INITIAL_BADGES: Badge[] = [
   {
     id: 'level_5',
     title: 'Elite Scout',
-    description: 'Reached Level 5 in Anime Lens.',
+    description: 'Reached Level 5 in AniTrace AI.',
     icon: '⚡',
     unlockedAt: null,
     requirement: 'Reach Level 5',

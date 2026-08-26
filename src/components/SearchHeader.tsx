@@ -65,7 +65,7 @@ export const SearchHeader: React.FC<SearchHeaderProps> = ({
           </div>
           <div>
             <span className="text-lg font-black tracking-tight bg-gradient-to-r from-primary via-primary-glow to-primary bg-clip-text text-transparent">
-              Anime Lens
+              AniTrace AI
             </span>
             <span className="hidden sm:inline-block ml-2 text-[10px] px-1.5 py-0.2 rounded font-mono font-semibold uppercase bg-primary/10 text-primary border border-primary/20">
               v2.0

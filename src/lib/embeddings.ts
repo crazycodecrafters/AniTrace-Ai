@@ -3,7 +3,7 @@ import localforage from 'localforage';
 import { ANIME_GENRES, AniListMedia } from './anilist';
 
 const embeddingsStore = localforage.createInstance({
-  name: 'AnimeLens',
+  name: 'AniTraceAI',
   storeName: 'embeddings_cache',
 });
 

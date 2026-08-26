@@ -251,7 +251,7 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({
             Tip: Press <kbd className="px-1 py-0.5 rounded bg-muted font-mono">Ctrl+K</kbd> anywhere to search
           </span>
           <span className="flex items-center gap-1">
-            <Command className="w-3 h-3 text-primary" /> Anime Lens
+            <Command className="w-3 h-3 text-primary" /> AniTrace AI
           </span>
         </div>
       </DialogContent>

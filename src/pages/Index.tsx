@@ -226,7 +226,7 @@ const Index = () => {
               )}
             </div>
             <h1 className="text-4xl sm:text-5xl font-extrabold bg-gradient-to-r from-primary via-primary-glow to-primary bg-clip-text text-transparent">
-              Anime Lens
+              AniTrace AI
             </h1>
           </div>
 

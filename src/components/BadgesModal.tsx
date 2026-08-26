@@ -50,7 +50,7 @@ export const BadgesModal: React.FC<BadgesModalProps> = ({ isOpen, onClose }) => 
       <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto p-6 bg-card/95 backdrop-blur-2xl border-border/40 text-foreground rounded-2xl">
         <DialogTitle className="sr-only">Achievements & Badges</DialogTitle>
         <DialogDescription className="sr-only">
-          View your Anime Lens stats, level progression, and unlocked badges.
+          View your AniTrace AI stats, level progression, and unlocked badges.
         </DialogDescription>
 
         {/* Header */}
