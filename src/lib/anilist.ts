@@ -345,7 +345,12 @@ export async function searchAnime(options: SearchOptions = {}): Promise<{
 /**
  * Fetch detailed info for a single anime by AniList ID
  */
-export async function getAnimeById(id: number): Promise<AniListMedia | null> {
+export async function getAnimeById(idOrObject: any): Promise<AniListMedia | null> {
+  const id = typeof idOrObject === 'object' && idOrObject !== null ? Number(idOrObject.id) : Number(idOrObject);
+  if (!id || isNaN(id) || id <= 0) {
+    return null;
+  }
+
   const query = `
     query ($id: Int) {
       Media(id: $id, type: ANIME) {
@@ -358,7 +363,7 @@ export async function getAnimeById(id: number): Promise<AniListMedia | null> {
     const data = await fetchAniListGraphQL<{ Media: AniListMedia }>(query, { id });
     return data.Media;
   } catch (error) {
-    console.error(`Failed to fetch anime #${id}:`, error);
+    console.warn(`Failed to fetch AniList metadata for #${id}:`, error);
     return null;
   }
 }
