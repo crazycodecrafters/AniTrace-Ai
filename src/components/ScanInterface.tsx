@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   Upload,
@@ -19,14 +19,27 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Switch } from '@/components/ui/switch';
 import { Label } from '@/components/ui/label';
 import { useToast } from '@/hooks/use-toast';
-import { getAnimeById, searchAnime } from '@/lib/anilist';
+import { AniListMedia, getAnimeById, searchAnime } from '@/lib/anilist';
 import { TraceCandidate } from '@/lib/storage';
+import { traceMoeLoadBalancer } from '@/lib/loadBalancer';
+import { isSafeUrl } from '@/lib/sanitize';
+
+interface RawTraceCandidate {
+  anilist: number | { id: number; idMal?: number; title?: { romaji?: string; english?: string; native?: string }; isAdult?: boolean; genres?: string[]; format?: string; status?: string; season?: string; seasonYear?: number; episodes?: number; duration?: number; popularity?: number; averageScore?: number; studios?: { nodes: Array<{ id: number; name: string; isAnimationStudio: boolean }> }; externalLinks?: Array<{ id: number; url: string; site: string }>; coverImage?: { large?: string; extraLarge?: string; medium?: string; color?: string }; bannerImage?: string | null; description?: string };
+  filename: string;
+  episode: number | string | null;
+  from: number;
+  to: number;
+  similarity: number;
+  video: string;
+  image: string;
+}
 
 interface ScanInterfaceProps {
   onScanComplete: (result: {
     trace: TraceCandidate;
     allCandidates: TraceCandidate[];
-    anilist: any;
+    anilist: AniListMedia;
     timestamp: string;
     imagePreviewUrl?: string;
   }) => void;
@@ -78,6 +91,296 @@ export const ScanInterface: React.FC<ScanInterfaceProps> = ({ onScanComplete, on
   const fileInputRef = useRef<HTMLInputElement>(null);
   const { toast } = useToast();
 
+  const handleApiKeySave = (key: string) => {
+    setApiKey(key);
+    localStorage.setItem('trace_moe_api_key', key);
+    if (key.trim()) {
+      toast({
+        title: 'API Key Saved',
+        description: 'Trace.moe API key updated for higher rate limits.',
+      });
+    }
+  };
+
+  const handleScan = useCallback(
+    async (
+      imageSource: File | string,
+      sampleMeta?: { anilistId?: number; fallbackQuery?: string; title?: string }
+    ) => {
+      setIsScanning(true);
+      setScanSuccess(false);
+      setStatusMessage('Querying neural anime index...');
+      onScanStart();
+
+      // Create local preview
+      let currentPreview = '';
+      if (imageSource instanceof File) {
+        currentPreview = URL.createObjectURL(imageSource);
+        setPreviewUrl(currentPreview);
+      } else {
+        currentPreview = imageSource;
+        setPreviewUrl(imageSource);
+      }
+
+      try {
+        // If sample scene with known ID, we can directly fetch AniList metadata or combine with trace.moe
+        if (sampleMeta?.anilistId) {
+          setStatusMessage(`Loading ${sampleMeta.title || 'anime'} metadata & scene clips...`);
+          const anilistData = await getAnimeById(sampleMeta.anilistId);
+
+          if (anilistData) {
+            const sampleResult = {
+              trace: {
+                anilist: sampleMeta.anilistId,
+                filename: `${anilistData.title.romaji}.mp4`,
+                episode: 1,
+                from: 350,
+                to: 360,
+                similarity: 0.985,
+                video: '',
+                image: currentPreview,
+              },
+              allCandidates: [
+                {
+                  anilist: sampleMeta.anilistId,
+                  filename: `${anilistData.title.romaji} - Episode 1`,
+                  episode: 1,
+                  from: 350,
+                  to: 360,
+                  similarity: 0.985,
+                  video: '',
+                  image: currentPreview,
+                },
+              ],
+              anilist: anilistData,
+              timestamp: new Date().toISOString(),
+              imagePreviewUrl: currentPreview,
+            };
+
+            setScanSuccess(true);
+            setTimeout(() => {
+              onScanComplete(sampleResult);
+              setScanSuccess(false);
+              setIsScanning(false);
+            }, 500);
+            return;
+          }
+        }
+
+        // Step 1: Query trace.moe API via Load Balancer
+        const traceMoeData = await traceMoeLoadBalancer
+          .execute<{ result?: RawTraceCandidate[] }>(async (baseUrl, signal) => {
+            const headers: Record<string, string> = {};
+            if (apiKey.trim()) {
+              headers['x-trace-secret'] = apiKey.trim();
+            }
+
+            if (typeof imageSource === 'string') {
+              const borderParam = cutBorders ? '&cutBorders=true' : '&cutBorders=false';
+              const endpoint = `${baseUrl}/search?anilistInfo=true${borderParam}&url=${encodeURIComponent(
+                imageSource
+              )}`;
+              const res = await fetch(endpoint, { headers, signal });
+              if (!res.ok) {
+                throw new Error(`Trace.moe error (${res.status})`);
+              }
+              return res.json();
+            } else {
+              const formData = new FormData();
+              formData.append('image', imageSource);
+              const urlParams = new URLSearchParams();
+              if (cutBorders) urlParams.set('cutBorders', 'true');
+              urlParams.set('anilistInfo', 'true');
+
+              const res = await fetch(`${baseUrl}/search?${urlParams.toString()}`, {
+                method: 'POST',
+                headers,
+                body: formData,
+                signal,
+              });
+              if (!res.ok) {
+                throw new Error(`Trace.moe error (${res.status})`);
+              }
+              return res.json();
+            }
+          })
+          .catch(() => null);
+
+        // Step 2: If trace.moe found results, parse them cleanly
+        if (traceMoeData?.result && traceMoeData.result.length > 0) {
+          setStatusMessage('Found matches! Retrieving AniList intelligence...');
+
+          const sortedCandidates = [...traceMoeData.result].sort(
+            (a, b) => b.similarity - a.similarity
+          );
+          const bestMatch = sortedCandidates[0];
+
+          const rawAnilist = bestMatch.anilist;
+          const anilistId =
+            typeof rawAnilist === 'object' && rawAnilist !== null
+              ? Number(rawAnilist.id)
+              : Number(rawAnilist);
+
+          const normalizedCandidates: TraceCandidate[] = sortedCandidates.map((c) => {
+            const cId =
+              typeof c.anilist === 'object' && c.anilist !== null
+                ? Number(c.anilist.id)
+                : Number(c.anilist);
+            return {
+              ...c,
+              anilist: cId,
+            };
+          });
+
+          // Fetch detailed AniList GraphQL metadata
+          let anilistData: AniListMedia | null = null;
+          if (anilistId && !isNaN(anilistId) && anilistId > 0) {
+            anilistData = await getAnimeById(anilistId);
+          }
+
+          // Graceful fallback from embedded trace.moe anilistInfo
+          if (!anilistData) {
+            if (typeof rawAnilist === 'object' && rawAnilist !== null) {
+              anilistData = {
+                id: rawAnilist.id || anilistId || Date.now(),
+                idMal: rawAnilist.idMal,
+                title: {
+                  romaji:
+                    rawAnilist.title?.romaji ||
+                    rawAnilist.title?.english ||
+                    rawAnilist.title?.native ||
+                    bestMatch.filename?.replace(/\.[^/.]+$/, '') ||
+                    'Identified Anime Scene',
+                  english: rawAnilist.title?.english,
+                  native: rawAnilist.title?.native,
+                },
+                coverImage: {
+                  large:
+                    rawAnilist.coverImage?.large ||
+                    rawAnilist.coverImage?.extraLarge ||
+                    bestMatch.image ||
+                    '',
+                  extraLarge:
+                    rawAnilist.coverImage?.extraLarge ||
+                    rawAnilist.coverImage?.large ||
+                    bestMatch.image ||
+                    '',
+                  medium: rawAnilist.coverImage?.medium || rawAnilist.coverImage?.large,
+                  color: rawAnilist.coverImage?.color,
+                },
+                bannerImage: rawAnilist.bannerImage,
+                description:
+                  rawAnilist.description ||
+                  `Identified anime scene from file: ${bestMatch.filename || 'Broadcast episode'}.`,
+                genres:
+                  Array.isArray(rawAnilist.genres) && rawAnilist.genres.length > 0
+                    ? rawAnilist.genres
+                    : ['Action', 'Fantasy', 'Animation'],
+                format: (rawAnilist.format as AniListMedia['format']) || 'TV',
+                status: (rawAnilist.status as AniListMedia['status']) || 'FINISHED',
+                season: rawAnilist.season as AniListMedia['season'],
+                seasonYear: rawAnilist.seasonYear || new Date().getFullYear(),
+                episodes: rawAnilist.episodes || (typeof bestMatch.episode === 'number' ? bestMatch.episode : null),
+                duration: rawAnilist.duration,
+                popularity: rawAnilist.popularity || 10000,
+                averageScore: rawAnilist.averageScore || 80,
+                studios: rawAnilist.studios || { nodes: [] },
+                externalLinks: rawAnilist.externalLinks || [],
+              };
+            } else {
+              const cleanTitle = (bestMatch.filename || 'Anime Scene')
+                .replace(/\[.*?\]|\(.*?\)/g, '')
+                .replace(/\.[^/.]+$/, '')
+                .trim();
+
+              anilistData = {
+                id: anilistId || Date.now(),
+                title: {
+                  romaji: cleanTitle || 'Identified Anime Scene',
+                  english: cleanTitle,
+                },
+                coverImage: {
+                  large: bestMatch.image || '',
+                  extraLarge: bestMatch.image || '',
+                },
+                description: `Matched scene from ${bestMatch.filename}.`,
+                genres: ['Anime', 'Action', 'Drama'],
+                format: 'TV',
+                status: 'FINISHED',
+                episodes: typeof bestMatch.episode === 'number' ? bestMatch.episode : 12,
+                averageScore: 82,
+                studios: { nodes: [] },
+                externalLinks: [],
+              };
+            }
+          }
+
+          const finalResult = {
+            trace: {
+              ...bestMatch,
+              anilist: anilistId,
+            },
+            allCandidates: normalizedCandidates,
+            anilist: anilistData,
+            timestamp: new Date().toISOString(),
+            imagePreviewUrl: currentPreview,
+          };
+
+          setScanSuccess(true);
+          setTimeout(() => {
+            onScanComplete(finalResult);
+            setScanSuccess(false);
+          }, 500);
+          return;
+        }
+
+        // Step 3: If trace.moe had 0 exact matches, check fallback title query
+        if (sampleMeta?.fallbackQuery) {
+          const searchFallback = await searchAnime({ query: sampleMeta.fallbackQuery, perPage: 1 });
+          if (searchFallback.media.length > 0) {
+            const media = searchFallback.media[0];
+            const fallbackResult = {
+              trace: {
+                anilist: media.id,
+                filename: `${media.title.romaji}.mp4`,
+                episode: 1,
+                from: 0,
+                to: 0,
+                similarity: 0.95,
+                video: '',
+                image: currentPreview,
+              },
+              allCandidates: [],
+              anilist: media,
+              timestamp: new Date().toISOString(),
+              imagePreviewUrl: currentPreview,
+            };
+            setScanSuccess(true);
+            setTimeout(() => {
+              onScanComplete(fallbackResult);
+              setScanSuccess(false);
+            }, 500);
+            return;
+          }
+        }
+
+        // If no match found
+        throw new Error('No matching anime scenes found. Try an uncropped, direct anime screenshot.');
+      } catch (err: unknown) {
+        const error = err instanceof Error ? err : new Error(String(err));
+        console.error('Scan error:', error);
+        toast({
+          title: 'Scan Notice',
+          description: error.message || 'Could not find an exact scene match. Try another screenshot.',
+          variant: 'destructive',
+        });
+      } finally {
+        setIsScanning(false);
+      }
+    },
+    [apiKey, cutBorders, onScanComplete, onScanStart, toast]
+  );
+
   // Listen for global clipboard paste (Ctrl+V / Cmd+V)
   useEffect(() => {
     const handlePaste = (e: ClipboardEvent) => {
@@ -118,286 +421,7 @@ export const ScanInterface: React.FC<ScanInterfaceProps> = ({ onScanComplete, on
 
     window.addEventListener('paste', handlePaste);
     return () => window.removeEventListener('paste', handlePaste);
-  }, [cutBorders, apiKey]);
-
-  const handleApiKeySave = (key: string) => {
-    setApiKey(key);
-    localStorage.setItem('trace_moe_api_key', key);
-    if (key.trim()) {
-      toast({
-        title: 'API Key Saved',
-        description: 'Trace.moe API key updated for higher rate limits.',
-      });
-    }
-  };
-
-  const handleScan = async (
-    imageSource: File | string,
-    sampleMeta?: { anilistId?: number; fallbackQuery?: string; title?: string }
-  ) => {
-    setIsScanning(true);
-    setScanSuccess(false);
-    setStatusMessage('Querying neural anime index...');
-    onScanStart();
-
-    // Create local preview
-    let currentPreview = '';
-    if (imageSource instanceof File) {
-      currentPreview = URL.createObjectURL(imageSource);
-      setPreviewUrl(currentPreview);
-    } else {
-      currentPreview = imageSource;
-      setPreviewUrl(imageSource);
-    }
-
-    try {
-      // If sample scene with known ID, we can directly fetch AniList metadata or combine with trace.moe
-      if (sampleMeta?.anilistId) {
-        setStatusMessage(`Loading ${sampleMeta.title || 'anime'} metadata & scene clips...`);
-        const anilistData = await getAnimeById(sampleMeta.anilistId);
-
-        if (anilistData) {
-          const sampleResult = {
-            trace: {
-              anilist: sampleMeta.anilistId,
-              filename: `${anilistData.title.romaji}.mp4`,
-              episode: 1,
-              from: 350,
-              to: 360,
-              similarity: 0.985,
-              video: '',
-              image: currentPreview,
-            },
-            allCandidates: [
-              {
-                anilist: sampleMeta.anilistId,
-                filename: `${anilistData.title.romaji} - Episode 1`,
-                episode: 1,
-                from: 350,
-                to: 360,
-                similarity: 0.985,
-                video: '',
-                image: currentPreview,
-              },
-            ],
-            anilist: anilistData,
-            timestamp: new Date().toISOString(),
-            imagePreviewUrl: currentPreview,
-          };
-
-          setScanSuccess(true);
-          setTimeout(() => {
-            onScanComplete(sampleResult);
-            setScanSuccess(false);
-            setIsScanning(false);
-          }, 500);
-          return;
-        }
-      }
-
-      // Step 1: Query trace.moe API
-      let traceMoeResponse: Response;
-      const headers: Record<string, string> = {};
-      if (apiKey.trim()) {
-        headers['x-trace-secret'] = apiKey.trim();
-      }
-
-      if (typeof imageSource === 'string') {
-        const borderParam = cutBorders ? '&cutBorders=true' : '&cutBorders=false';
-        const endpoint = `https://api.trace.moe/search?anilistInfo=true${borderParam}&url=${encodeURIComponent(
-          imageSource
-        )}`;
-        traceMoeResponse = await fetch(endpoint, { headers });
-      } else {
-        const formData = new FormData();
-        formData.append('image', imageSource);
-        const urlParams = new URLSearchParams();
-        if (cutBorders) urlParams.set('cutBorders', 'true');
-        urlParams.set('anilistInfo', 'true');
-
-        traceMoeResponse = await fetch(`https://api.trace.moe/search?${urlParams.toString()}`, {
-          method: 'POST',
-          headers,
-          body: formData,
-        });
-      }
-
-      let traceMoeData: any = null;
-      if (traceMoeResponse.ok) {
-        traceMoeData = await traceMoeResponse.json().catch(() => null);
-      }
-
-      // Step 2: If trace.moe found results, parse them cleanly
-      if (traceMoeData?.result && traceMoeData.result.length > 0) {
-        setStatusMessage('Found matches! Retrieving AniList intelligence...');
-
-        const sortedCandidates = [...traceMoeData.result].sort(
-          (a: any, b: any) => b.similarity - a.similarity
-        );
-        const bestMatch = sortedCandidates[0];
-
-        const rawAnilist = bestMatch.anilist;
-        const anilistId =
-          typeof rawAnilist === 'object' && rawAnilist !== null
-            ? Number(rawAnilist.id)
-            : Number(rawAnilist);
-
-        const normalizedCandidates: TraceCandidate[] = sortedCandidates.map((c: any) => {
-          const cId =
-            typeof c.anilist === 'object' && c.anilist !== null
-              ? Number(c.anilist.id)
-              : Number(c.anilist);
-          return {
-            ...c,
-            anilist: cId,
-          };
-        });
-
-        // Fetch detailed AniList GraphQL metadata
-        let anilistData: any = null;
-        if (anilistId && !isNaN(anilistId) && anilistId > 0) {
-          anilistData = await getAnimeById(anilistId);
-        }
-
-        // Graceful fallback from embedded trace.moe anilistInfo
-        if (!anilistData) {
-          if (typeof rawAnilist === 'object' && rawAnilist !== null) {
-            anilistData = {
-              id: rawAnilist.id || anilistId || Date.now(),
-              idMal: rawAnilist.idMal,
-              title: {
-                romaji:
-                  rawAnilist.title?.romaji ||
-                  rawAnilist.title?.english ||
-                  rawAnilist.title?.native ||
-                  bestMatch.filename?.replace(/\.[^/.]+$/, '') ||
-                  'Identified Anime Scene',
-                english: rawAnilist.title?.english,
-                native: rawAnilist.title?.native,
-              },
-              coverImage: {
-                large:
-                  rawAnilist.coverImage?.large ||
-                  rawAnilist.coverImage?.extraLarge ||
-                  bestMatch.image ||
-                  '',
-                extraLarge:
-                  rawAnilist.coverImage?.extraLarge ||
-                  rawAnilist.coverImage?.large ||
-                  bestMatch.image ||
-                  '',
-                medium: rawAnilist.coverImage?.medium || rawAnilist.coverImage?.large,
-                color: rawAnilist.coverImage?.color,
-              },
-              bannerImage: rawAnilist.bannerImage,
-              description:
-                rawAnilist.description ||
-                `Identified anime scene from file: ${bestMatch.filename || 'Broadcast episode'}.`,
-              genres:
-                Array.isArray(rawAnilist.genres) && rawAnilist.genres.length > 0
-                  ? rawAnilist.genres
-                  : ['Action', 'Fantasy', 'Animation'],
-              format: rawAnilist.format || 'TV',
-              status: rawAnilist.status || 'FINISHED',
-              season: rawAnilist.season,
-              seasonYear: rawAnilist.seasonYear || new Date().getFullYear(),
-              episodes: rawAnilist.episodes || bestMatch.episode || null,
-              duration: rawAnilist.duration,
-              popularity: rawAnilist.popularity || 10000,
-              averageScore: rawAnilist.averageScore || 80,
-              studios: rawAnilist.studios || { nodes: [] },
-              externalLinks: rawAnilist.externalLinks || [],
-            };
-          } else {
-            const cleanTitle = (bestMatch.filename || 'Anime Scene')
-              .replace(/\[.*?\]|\(.*?\)/g, '')
-              .replace(/\.[^/.]+$/, '')
-              .trim();
-
-            anilistData = {
-              id: anilistId || Date.now(),
-              title: {
-                romaji: cleanTitle || 'Identified Anime Scene',
-                english: cleanTitle,
-              },
-              coverImage: {
-                large: bestMatch.image || '',
-                extraLarge: bestMatch.image || '',
-              },
-              description: `Matched scene from ${bestMatch.filename}.`,
-              genres: ['Anime', 'Action', 'Drama'],
-              format: 'TV',
-              status: 'FINISHED',
-              episodes: bestMatch.episode || 12,
-              averageScore: 82,
-              studios: { nodes: [] },
-              externalLinks: [],
-            };
-          }
-        }
-
-        const finalResult = {
-          trace: {
-            ...bestMatch,
-            anilist: anilistId,
-          },
-          allCandidates: normalizedCandidates,
-          anilist: anilistData,
-          timestamp: new Date().toISOString(),
-          imagePreviewUrl: currentPreview,
-        };
-
-        setScanSuccess(true);
-        setTimeout(() => {
-          onScanComplete(finalResult);
-          setScanSuccess(false);
-        }, 500);
-        return;
-      }
-
-      // Step 3: If trace.moe had 0 exact matches, check fallback title query
-      if (sampleMeta?.fallbackQuery) {
-        const searchFallback = await searchAnime({ query: sampleMeta.fallbackQuery, perPage: 1 });
-        if (searchFallback.media.length > 0) {
-          const media = searchFallback.media[0];
-          const fallbackResult = {
-            trace: {
-              anilist: media.id,
-              filename: `${media.title.romaji}.mp4`,
-              episode: 1,
-              from: 0,
-              to: 0,
-              similarity: 0.95,
-              video: '',
-              image: currentPreview,
-            },
-            allCandidates: [],
-            anilist: media,
-            timestamp: new Date().toISOString(),
-            imagePreviewUrl: currentPreview,
-          };
-          setScanSuccess(true);
-          setTimeout(() => {
-            onScanComplete(fallbackResult);
-            setScanSuccess(false);
-          }, 500);
-          return;
-        }
-      }
-
-      // If no match found
-      throw new Error('No matching anime scenes found. Try an uncropped, direct anime screenshot.');
-    } catch (error: any) {
-      console.error('Scan error:', error);
-      toast({
-        title: 'Scan Notice',
-        description: error.message || 'Could not find an exact scene match. Try another screenshot.',
-        variant: 'destructive',
-      });
-    } finally {
-      setIsScanning(false);
-    }
-  };
+  }, [handleScan, toast]);
 
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -414,7 +438,7 @@ export const ScanInterface: React.FC<ScanInterfaceProps> = ({ onScanComplete, on
   const handleUrlScan = () => {
     const url = imageUrl.trim();
     if (!url) return;
-    if (!/^https?:\/\//i.test(url)) {
+    if (!isSafeUrl(url)) {
       toast({
         title: 'Invalid URL',
         description: 'URL must start with http:// or https://',

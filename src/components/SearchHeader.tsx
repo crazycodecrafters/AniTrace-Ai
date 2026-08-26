@@ -140,7 +140,16 @@ export const SearchHeader: React.FC<SearchHeaderProps> = ({
           {/* Gamification Level & Streak Bar */}
           <div
             onClick={onOpenBadges}
-            className="flex items-center gap-2 p-1.5 sm:px-3 sm:py-1.5 rounded-xl glass-card border border-border/40 hover:border-primary/40 cursor-pointer transition-all"
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' || e.key === ' ') {
+                e.preventDefault();
+                onOpenBadges();
+              }
+            }}
+            tabIndex={0}
+            role="button"
+            aria-label={`Otaku Level ${profile.level}, Streak ${profile.currentStreak} days. Click to view badges.`}
+            className="flex items-center gap-2 p-1.5 sm:px-3 sm:py-1.5 rounded-xl glass-card border border-border/40 hover:border-primary/40 focus-visible:ring-2 focus-visible:ring-primary focus-visible:outline-none cursor-pointer transition-all"
             title="Click to view Scout Badges and XP stats"
           >
             {/* Streak */}

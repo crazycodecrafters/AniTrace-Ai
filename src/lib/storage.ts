@@ -395,15 +395,46 @@ export const exportHistoryJSON = async (): Promise<string> => {
 
 export const importHistoryJSON = async (jsonString: string): Promise<number> => {
   try {
-    const data = JSON.parse(jsonString);
-    if (!data.history || !Array.isArray(data.history)) {
-      throw new Error('Invalid backup file format');
+    if (!jsonString || typeof jsonString !== 'string') {
+      throw new Error('Invalid input: Empty backup payload');
     }
+    const data = JSON.parse(jsonString);
+    if (!data || typeof data !== 'object' || !Array.isArray(data.history)) {
+      throw new Error('Invalid backup file format: Missing history array');
+    }
+
     const currentHistory = await getHistory();
     const existingIds = new Set(currentHistory.map((h) => h.id));
     
     let addedCount = 0;
-    for (const item of data.history) {
+    for (const rawItem of data.history) {
+      if (!rawItem || typeof rawItem !== 'object' || !rawItem.id || !rawItem.title) {
+        continue;
+      }
+      
+      const item: HistoryItem = {
+        id: String(rawItem.id),
+        anilistId: Number(rawItem.anilistId) || 0,
+        title: String(rawItem.title).slice(0, 300),
+        englishTitle: rawItem.englishTitle ? String(rawItem.englishTitle).slice(0, 300) : null,
+        nativeTitle: rawItem.nativeTitle ? String(rawItem.nativeTitle).slice(0, 300) : null,
+        coverUrl: String(rawItem.coverUrl || ''),
+        bannerUrl: rawItem.bannerUrl ? String(rawItem.bannerUrl) : null,
+        timestamp: rawItem.timestamp ? String(rawItem.timestamp) : new Date().toISOString(),
+        episode: rawItem.episode ?? null,
+        timeRange: rawItem.timeRange ? String(rawItem.timeRange) : undefined,
+        similarity: typeof rawItem.similarity === 'number' ? rawItem.similarity : undefined,
+        videoUrl: rawItem.videoUrl ? String(rawItem.videoUrl) : undefined,
+        tags: Array.isArray(rawItem.tags) ? rawItem.tags.map(String).slice(0, 20) : [],
+        synopsis: String(rawItem.synopsis || '').slice(0, 2000),
+        genres: Array.isArray(rawItem.genres) ? rawItem.genres.map(String).slice(0, 10) : [],
+        score: typeof rawItem.score === 'number' ? rawItem.score : null,
+        format: rawItem.format ? String(rawItem.format) : undefined,
+        seasonYear: typeof rawItem.seasonYear === 'number' ? rawItem.seasonYear : undefined,
+        allCandidates: Array.isArray(rawItem.allCandidates) ? rawItem.allCandidates : undefined,
+        fullMedia: rawItem.fullMedia && typeof rawItem.fullMedia === 'object' ? rawItem.fullMedia : undefined,
+      };
+
       if (!existingIds.has(item.id)) {
         currentHistory.push(item);
         existingIds.add(item.id);
@@ -412,9 +443,25 @@ export const importHistoryJSON = async (jsonString: string): Promise<number> => 
     }
 
     await localforage.setItem('history', currentHistory);
+
+    // If profile was also backed up, merge XP & streak safely
+    if (data.profile && typeof data.profile === 'object') {
+      const currentProfile = await getProfile();
+      const importedXp = Number(data.profile.xp) || 0;
+      if (importedXp > currentProfile.xp) {
+        await updateProfile({
+          xp: importedXp,
+          totalScans: Math.max(currentProfile.totalScans, Number(data.profile.totalScans) || 0),
+          currentStreak: Math.max(currentProfile.currentStreak, Number(data.profile.currentStreak) || 1),
+        });
+      }
+    }
+
     return addedCount;
   } catch (error) {
-    console.error('Import failed:', error);
+    if (typeof process !== 'undefined' && process.env.NODE_ENV !== 'test') {
+      console.error('Import failed:', error);
+    }
     throw error;
   }
 };

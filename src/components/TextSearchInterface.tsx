@@ -100,7 +100,7 @@ export const TextSearchInterface: React.FC<TextSearchInterfaceProps> = ({
             status: selectedStatus !== 'ALL' ? selectedStatus : undefined,
             seasonYear: selectedYear !== 'ALL' ? parseInt(selectedYear, 10) : undefined,
             minScore: minScore > 0 ? minScore : undefined,
-            sort: [selectedSort as any],
+            sort: [selectedSort as NonNullable<SearchOptions['sort']>[number]],
           };
 
           const data = await searchAnime(options);

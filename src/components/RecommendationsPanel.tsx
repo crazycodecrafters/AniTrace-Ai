@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Sparkles, Star, Film, Tv, Info, SlidersHorizontal, ArrowUpRight } from 'lucide-react';
 import { searchAnime, AniListMedia } from '@/lib/anilist';
@@ -7,7 +7,9 @@ import { Badge } from '@/components/ui/badge';
 import { AnimeDetailModal } from '@/components/AnimeDetailModal';
 
 interface RecommendationsPanelProps {
-  currentResult: any;
+  currentResult: {
+    anilist?: AniListMedia;
+  } | null;
   onSelectAnime?: (media: AniListMedia) => void;
 }
 
@@ -23,15 +25,14 @@ export const RecommendationsPanel: React.FC<RecommendationsPanelProps> = ({
 
   const anilist = currentResult?.anilist;
 
-  useEffect(() => {
-    if (!anilist) return;
-    fetchRecommendations();
-  }, [anilist?.id]);
-
-  const fetchRecommendations = async () => {
+  const fetchRecommendations = useCallback(async () => {
+    if (!anilist) {
+      setLoading(false);
+      return;
+    }
     setLoading(true);
     try {
-      if (!anilist?.genres || anilist.genres.length === 0) {
+      if (!anilist.genres || anilist.genres.length === 0) {
         setLoading(false);
         return;
       }
@@ -46,7 +47,7 @@ export const RecommendationsPanel: React.FC<RecommendationsPanelProps> = ({
 
       // Also if relations exist in anilist, add them to candidate pool
       const relationCandidates: AniListMedia[] =
-        anilist.relations?.edges?.map((e: any) => e.node as any) || [];
+        anilist.relations?.edges?.map((e) => e.node as unknown as AniListMedia) || [];
 
       const candidatePool = [...searchData.media, ...relationCandidates];
 
@@ -59,7 +60,11 @@ export const RecommendationsPanel: React.FC<RecommendationsPanelProps> = ({
     } finally {
       setLoading(false);
     }
-  };
+  }, [anilist]);
+
+  useEffect(() => {
+    fetchRecommendations();
+  }, [fetchRecommendations]);
 
   useEffect(() => {
     let list = [...recommendations];

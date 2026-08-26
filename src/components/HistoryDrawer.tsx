@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   History,
@@ -36,7 +36,6 @@ import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { useToast } from '@/hooks/use-toast';
 import {
-  getHistory,
   deleteHistoryItem,
   clearAllHistory,
   searchHistory,
@@ -65,7 +64,7 @@ export const HistoryDrawer: React.FC<HistoryDrawerProps> = ({
   const fileInputRef = useRef<HTMLInputElement>(null);
   const { toast } = useToast();
 
-  const loadData = async () => {
+  const loadData = useCallback(async () => {
     setLoading(true);
     try {
       const items = await searchHistory(searchQuery, selectedGenre);
@@ -73,13 +72,13 @@ export const HistoryDrawer: React.FC<HistoryDrawerProps> = ({
     } finally {
       setLoading(false);
     }
-  };
+  }, [searchQuery, selectedGenre]);
 
   useEffect(() => {
     if (isOpen) {
       loadData();
     }
-  }, [isOpen, searchQuery, selectedGenre]);
+  }, [isOpen, loadData]);
 
   const handleDelete = async (id: string, e: React.MouseEvent) => {
     e.stopPropagation();
@@ -135,10 +134,11 @@ export const HistoryDrawer: React.FC<HistoryDrawerProps> = ({
         title: 'Import Successful',
         description: `Imported ${count} new scan records into history.`,
       });
-    } catch (err: any) {
+    } catch (err: unknown) {
+      const error = err instanceof Error ? err : new Error(String(err));
       toast({
         title: 'Import Failed',
-        description: err.message || 'Invalid JSON file format.',
+        description: error.message || 'Invalid JSON file format.',
         variant: 'destructive',
       });
     }

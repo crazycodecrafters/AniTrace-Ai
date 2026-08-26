@@ -30,7 +30,7 @@ const Index = () => {
   const [currentResult, setCurrentResult] = useState<{
     trace: TraceCandidate;
     allCandidates?: TraceCandidate[];
-    anilist: any;
+    anilist: AniListMedia;
     timestamp: string;
     imagePreviewUrl?: string;
   } | null>(null);
@@ -63,7 +63,7 @@ const Index = () => {
   const handleScanComplete = async (result: {
     trace: TraceCandidate;
     allCandidates: TraceCandidate[];
-    anilist: any;
+    anilist: AniListMedia;
     timestamp: string;
     imagePreviewUrl?: string;
   }) => {
@@ -91,7 +91,7 @@ const Index = () => {
         timeRange: `${formatTime(result.trace.from)} - ${formatTime(result.trace.to)}`,
         similarity: result.trace.similarity,
         videoUrl: result.trace.video,
-        tags: result.anilist.tags?.slice(0, 5).map((t: any) => t.name) || [],
+        tags: result.anilist.tags?.slice(0, 5).map((t) => t.name) || [],
         synopsis: result.anilist.description?.substring(0, 200) || '',
         genres: result.anilist.genres || [],
         score: result.anilist.averageScore,
@@ -160,7 +160,7 @@ const Index = () => {
     }
   };
 
-  const handleFindSimilarAnime = async (media: any) => {
+  const handleFindSimilarAnime = async (media: AniListMedia) => {
     // Scroll to recommendations or switch to scan tab with selected media
     if (currentResult && currentResult.anilist?.id === media.id) {
       const element = document.getElementById('recommendations-section');
@@ -193,6 +193,14 @@ const Index = () => {
 
   return (
     <div className="min-h-screen bg-background text-foreground relative selection:bg-primary selection:text-primary-foreground">
+      {/* Accessibility Skip Link */}
+      <a
+        href="#main-content"
+        className="sr-only focus:not-sr-only focus:absolute focus:z-50 focus:p-4 focus:bg-primary focus:text-primary-foreground focus:rounded-md focus:shadow-lg focus:top-4 focus:left-4 font-semibold"
+      >
+        Skip to main content
+      </a>
+
       {/* Search Header Bar */}
       <SearchHeader
         activeTab={activeTab}
@@ -208,7 +216,7 @@ const Index = () => {
       />
 
       {/* Main Container */}
-      <main className="container mx-auto px-4 py-8 max-w-6xl">
+      <main id="main-content" className="container mx-auto px-4 py-8 max-w-6xl">
         {/* Dynamic Hero Section */}
         <motion.div
           initial={{ opacity: 0, y: -15 }}

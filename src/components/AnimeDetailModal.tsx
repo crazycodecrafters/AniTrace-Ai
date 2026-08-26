@@ -16,6 +16,7 @@ import {
   Award,
 } from 'lucide-react';
 import { AniListMedia } from '@/lib/anilist';
+import { sanitizeHtml } from '@/lib/sanitize';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogTitle, DialogDescription } from '@/components/ui/dialog';
@@ -279,7 +280,7 @@ export const AnimeDetailModal: React.FC<AnimeDetailModalProps> = ({
               <div
                 className="text-sm leading-relaxed text-muted-foreground/90 max-h-48 overflow-y-auto pr-2"
                 dangerouslySetInnerHTML={{
-                  __html: media.description.replace(/<br\s*[\/]?>/gi, '<br />'),
+                  __html: sanitizeHtml(media.description),
                 }}
               />
             </div>

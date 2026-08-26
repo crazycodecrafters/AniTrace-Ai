@@ -103,6 +103,8 @@ export interface AniListMedia {
   };
 }
 
+import { anilistLoadBalancer } from './loadBalancer';
+
 export interface SearchOptions {
   query?: string;
   page?: number;
@@ -116,29 +118,30 @@ export interface SearchOptions {
   sort?: Array<'POPULARITY_DESC' | 'SCORE_DESC' | 'TRENDING_DESC' | 'START_DATE_DESC' | 'TITLE_ROMAJI' | 'FAVOURITES_DESC'>;
 }
 
-const ANILIST_ENDPOINT = 'https://graphql.anilist.co';
+async function fetchAniListGraphQL<T>(query: string, variables: Record<string, unknown> = {}): Promise<T> {
+  return anilistLoadBalancer.execute<T>(async (endpointUrl, signal) => {
+    const response = await fetch(endpointUrl, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Accept: 'application/json',
+      },
+      body: JSON.stringify({ query, variables }),
+      signal,
+    });
 
-async function fetchAniListGraphQL<T>(query: string, variables: Record<string, any> = {}): Promise<T> {
-  const response = await fetch(ANILIST_ENDPOINT, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Accept: 'application/json',
-    },
-    body: JSON.stringify({ query, variables }),
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(`AniList API error (${response.status}): ${errorText}`);
+    }
+
+    const json = await response.json();
+    if (json.errors && json.errors.length > 0) {
+      throw new Error(json.errors[0].message || 'Error fetching AniList data');
+    }
+
+    return json.data;
   });
-
-  if (!response.ok) {
-    const errorText = await response.text();
-    throw new Error(`AniList API error (${response.status}): ${errorText}`);
-  }
-
-  const json = await response.json();
-  if (json.errors && json.errors.length > 0) {
-    throw new Error(json.errors[0].message || 'Error fetching AniList data');
-  }
-
-  return json.data;
 }
 
 const FULL_MEDIA_FIELDS = `
@@ -309,7 +312,7 @@ export async function searchAnime(options: SearchOptions = {}): Promise<{
     }
   `;
 
-  const variables: Record<string, any> = {
+  const variables: Record<string, unknown> = {
     page,
     perPage,
     sort,
@@ -345,8 +348,9 @@ export async function searchAnime(options: SearchOptions = {}): Promise<{
 /**
  * Fetch detailed info for a single anime by AniList ID
  */
-export async function getAnimeById(idOrObject: any): Promise<AniListMedia | null> {
-  const id = typeof idOrObject === 'object' && idOrObject !== null ? Number(idOrObject.id) : Number(idOrObject);
+export async function getAnimeById(idOrObject: number | string | { id?: number | string } | null | undefined): Promise<AniListMedia | null> {
+  if (!idOrObject) return null;
+  const id = typeof idOrObject === 'object' ? Number(idOrObject.id) : Number(idOrObject);
   if (!id || isNaN(id) || id <= 0) {
     return null;
   }

@@ -18,21 +18,25 @@ import {
   Layers,
   ChevronDown,
   ChevronUp,
+  FastForward,
+  Rewind,
 } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { TraceCandidate } from '@/lib/storage';
+import { AniListMedia } from '@/lib/anilist';
+import { sanitizeHtml } from '@/lib/sanitize';
 import { MultiMatchInspector } from '@/components/MultiMatchInspector';
 
 interface ResultCardProps {
   result: {
     trace: TraceCandidate;
     allCandidates?: TraceCandidate[];
-    anilist: any;
+    anilist: AniListMedia;
     timestamp?: string;
   };
   onSelectCandidate?: (candidate: TraceCandidate) => void;
-  onFindSimilar?: (anilist: any) => void;
+  onFindSimilar?: (anilist: AniListMedia) => void;
 }
 
 export const ResultCard: React.FC<ResultCardProps> = ({
@@ -93,7 +97,7 @@ export const ResultCard: React.FC<ResultCardProps> = ({
   };
 
   const mainStudio =
-    anilist.studios?.nodes?.find((s: any) => s.isAnimationStudio)?.name ||
+    anilist.studios?.nodes?.find((s) => s.isAnimationStudio)?.name ||
     anilist.studios?.nodes?.[0]?.name;
 
   const similarityPct = (trace.similarity * 100).toFixed(1);
@@ -213,6 +217,32 @@ export const ResultCard: React.FC<ResultCardProps> = ({
               {isPlaying ? <Pause className="w-4 h-4 fill-white" /> : <Play className="w-4 h-4 fill-white" />}
             </button>
 
+            {/* Step -1s */}
+            <button
+              onClick={() => {
+                if (videoRef.current) {
+                  videoRef.current.currentTime = Math.max(0, videoRef.current.currentTime - 1);
+                }
+              }}
+              className="p-2 rounded-full bg-white/20 hover:bg-white/30 backdrop-blur-md transition-all text-white"
+              aria-label="Step backward 1 second"
+            >
+              <Rewind className="w-3.5 h-3.5" />
+            </button>
+
+            {/* Step +1s */}
+            <button
+              onClick={() => {
+                if (videoRef.current) {
+                  videoRef.current.currentTime += 1;
+                }
+              }}
+              className="p-2 rounded-full bg-white/20 hover:bg-white/30 backdrop-blur-md transition-all text-white"
+              aria-label="Step forward 1 second"
+            >
+              <FastForward className="w-3.5 h-3.5" />
+            </button>
+
             <button
               onClick={toggleMute}
               className="p-2 rounded-full bg-white/20 hover:bg-white/30 backdrop-blur-md transition-all text-white"
@@ -236,6 +266,7 @@ export const ResultCard: React.FC<ResultCardProps> = ({
                 setPlaybackSpeed(nextSpeed);
               }}
               className="text-xs font-mono px-2 py-1 rounded-lg bg-white/20 hover:bg-white/30 backdrop-blur-md"
+              aria-label={`Playback speed: currently ${playbackSpeed}x`}
             >
               {playbackSpeed}x
             </button>
@@ -368,7 +399,7 @@ export const ResultCard: React.FC<ResultCardProps> = ({
               showFullSynopsis ? '' : 'line-clamp-3'
             }`}
             dangerouslySetInnerHTML={{
-              __html: anilist.description.replace(/<br\s*[\/]?>/gi, '<br />'),
+              __html: sanitizeHtml(anilist.description),
             }}
           />
         </div>
@@ -381,7 +412,7 @@ export const ResultCard: React.FC<ResultCardProps> = ({
             Featured Characters & Japanese Voice Cast
           </h4>
           <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-6 gap-3">
-            {anilist.characters.edges.slice(0, 6).map((edge: any, idx: number) => {
+            {anilist.characters.edges.slice(0, 6).map((edge, idx) => {
               const char = edge.node;
               const va = edge.voiceActors?.[0];
               return (
