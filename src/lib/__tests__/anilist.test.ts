@@ -1,5 +1,12 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { getAnimeById, searchAnime, ANIME_GENRES } from '../anilist';
+import {
+  getAnimeById,
+  searchAnime,
+  getTrendingAnime,
+  getTopRatedAnime,
+  getSeasonalAnime,
+  ANIME_GENRES,
+} from '../anilist';
 
 describe('AniList GraphQL API Client', () => {
   beforeEach(() => {
@@ -74,5 +81,45 @@ describe('AniList GraphQL API Client', () => {
     const result = await searchAnime({ query: 'Frieren', perPage: 10 });
     expect(result.media).toHaveLength(1);
     expect(result.pageInfo.hasNextPage).toBe(true);
+  });
+
+  it('fetches trending anime list correctly', async () => {
+    const mockMedia = [
+      { id: 1, title: { romaji: 'Demon Slayer' } },
+      { id: 2, title: { romaji: 'Jujutsu Kaisen' } },
+    ];
+
+    global.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        data: {
+          Page: {
+            media: mockMedia,
+          },
+        },
+      }),
+    } as Response);
+
+    const trending = await getTrendingAnime(2);
+    expect(trending).toHaveLength(2);
+  });
+
+  it('fetches top rated and seasonal anime correctly', async () => {
+    global.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        data: {
+          Page: {
+            media: [{ id: 100, title: { romaji: 'Steins;Gate' } }],
+          },
+        },
+      }),
+    } as Response);
+
+    const topRated = await getTopRatedAnime(1);
+    expect(topRated).toHaveLength(1);
+
+    const seasonal = await getSeasonalAnime('FALL', 2024, 1);
+    expect(seasonal).toHaveLength(1);
   });
 });

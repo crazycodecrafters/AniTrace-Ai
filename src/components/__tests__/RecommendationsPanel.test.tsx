@@ -1,5 +1,5 @@
 import React from 'react';
-import { render, screen } from '@testing-library/react';
+import { render, screen, fireEvent } from '@testing-library/react';
 import { describe, it, expect, vi } from 'vitest';
 import { RecommendationsPanel } from '../RecommendationsPanel';
 import { AniListMedia } from '@/lib/anilist';
@@ -14,7 +14,7 @@ vi.mock('@/lib/anilist', () => ({
     media: [
       {
         id: 2,
-        title: { romaji: 'Jujutsu Kaisen' },
+        title: { romaji: 'Jujutsu Kaisen', english: 'Jujutsu Kaisen' },
         coverImage: { large: 'https://example.com/jjk.jpg' },
         genres: ['Action', 'Fantasy'],
         tags: [{ id: 1, name: 'Superpowers', rank: 90 }],
@@ -50,5 +50,23 @@ describe('RecommendationsPanel Component', () => {
     expect(await screen.findByText('AI Vector Recommendations')).toBeInTheDocument();
     expect(screen.getByText('All Matches')).toBeInTheDocument();
     expect(screen.getByText(/75%\+\s*Similarity/i)).toBeInTheDocument();
+  });
+
+  it('allows switching similarity filter tabs and opens detail modal on card click', async () => {
+    const handleSelect = vi.fn();
+    render(
+      <RecommendationsPanel
+        currentResult={{ anilist: mockTarget }}
+        onSelectAnime={handleSelect}
+      />
+    );
+
+    const highSimTab = await screen.findByText(/75%\+\s*Similarity/i);
+    fireEvent.click(highSimTab);
+
+    const jjkCard = await screen.findByText('Jujutsu Kaisen');
+    fireEvent.click(jjkCard);
+
+    expect(await screen.findByText('Find Similar Anime')).toBeInTheDocument();
   });
 });

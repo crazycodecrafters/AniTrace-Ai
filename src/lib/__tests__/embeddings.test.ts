@@ -4,6 +4,8 @@ import {
   cosineSimilarity,
   normalizeVector,
   rankSimilarAnime,
+  cacheMediaEmbedding,
+  getCachedMediaEmbedding,
 } from '../embeddings';
 import { AniListMedia } from '../anilist';
 
@@ -110,6 +112,22 @@ describe('Embeddings & Vector Similarity Engine', () => {
       expect(ranked[0].media.id).toBe(animeB.id); // Kabaneri is much closer to AoT than K-On!
       expect(ranked[0].similarityScore).toBeGreaterThan(ranked[1].similarityScore);
       expect(ranked[0].matchReasons.length).toBeGreaterThan(0);
+    });
+  });
+
+  describe('cacheMediaEmbedding and getCachedMediaEmbedding', () => {
+    it('caches and retrieves vector embeddings from local storage', async () => {
+      const vec = createMediaEmbedding(animeA);
+      await cacheMediaEmbedding(1, vec);
+
+      const cached = await getCachedMediaEmbedding(1);
+      expect(cached).toBeDefined();
+      expect(cached?.length).toBe(75);
+    });
+
+    it('returns null for non-cached embeddings', async () => {
+      const nonExistent = await getCachedMediaEmbedding(999999);
+      expect(nonExistent).toBeNull();
     });
   });
 });

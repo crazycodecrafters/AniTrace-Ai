@@ -23,6 +23,7 @@ import { AniListMedia, getAnimeById, searchAnime } from '@/lib/anilist';
 import { TraceCandidate } from '@/lib/storage';
 import { traceMoeLoadBalancer } from '@/lib/loadBalancer';
 import { isSafeUrl } from '@/lib/sanitize';
+import { validateImageFile, validateImageUrl } from '@/utils/fileValidation';
 
 interface RawTraceCandidate {
   anilist: number | { id: number; idMal?: number; title?: { romaji?: string; english?: string; native?: string }; isAdult?: boolean; genres?: string[]; format?: string; status?: string; season?: string; seasonYear?: number; episodes?: number; duration?: number; popularity?: number; averageScore?: number; studios?: { nodes: Array<{ id: number; name: string; isAnimationStudio: boolean }> }; externalLinks?: Array<{ id: number; url: string; site: string }>; coverImage?: { large?: string; extraLarge?: string; medium?: string; color?: string }; bannerImage?: string | null; description?: string };
@@ -425,23 +426,45 @@ export const ScanInterface: React.FC<ScanInterfaceProps> = ({ onScanComplete, on
 
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    if (file) handleScan(file);
+    if (file) {
+      const validation = validateImageFile(file);
+      if (!validation.valid) {
+        toast({
+          title: 'Invalid File',
+          description: validation.error,
+          variant: 'destructive',
+        });
+        return;
+      }
+      handleScan(file);
+    }
   };
 
   const handleDrop = (e: React.DragEvent) => {
     e.preventDefault();
     setDragActive(false);
     const file = e.dataTransfer.files?.[0];
-    if (file) handleScan(file);
+    if (file) {
+      const validation = validateImageFile(file);
+      if (!validation.valid) {
+        toast({
+          title: 'Invalid File',
+          description: validation.error,
+          variant: 'destructive',
+        });
+        return;
+      }
+      handleScan(file);
+    }
   };
 
   const handleUrlScan = () => {
     const url = imageUrl.trim();
-    if (!url) return;
-    if (!isSafeUrl(url)) {
+    const validation = validateImageUrl(url);
+    if (!validation.valid) {
       toast({
         title: 'Invalid URL',
-        description: 'URL must start with http:// or https://',
+        description: validation.error,
         variant: 'destructive',
       });
       return;

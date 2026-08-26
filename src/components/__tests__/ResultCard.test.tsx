@@ -1,5 +1,5 @@
 import React from 'react';
-import { render, screen } from '@testing-library/react';
+import { render, screen, fireEvent } from '@testing-library/react';
 import { describe, it, expect, vi } from 'vitest';
 import { ResultCard } from '../ResultCard';
 import { AniListMedia } from '@/lib/anilist';
@@ -64,5 +64,21 @@ describe('ResultCard Component', () => {
 
     expect(screen.getByLabelText('Step backward 1 second')).toBeInTheDocument();
     expect(screen.getByLabelText('Step forward 1 second')).toBeInTheDocument();
+  });
+
+  it('triggers onFindSimilar when Find Similar button is clicked', () => {
+    const handleFindSimilar = vi.fn();
+    render(
+      <ResultCard
+        result={mockResult}
+        onSelectCandidate={vi.fn()}
+        onFindSimilar={handleFindSimilar}
+      />
+    );
+
+    const findSimilarBtn = screen.getByText('Find Similar');
+    fireEvent.click(findSimilarBtn);
+
+    expect(handleFindSimilar).toHaveBeenCalledWith(mockAnilist);
   });
 });
